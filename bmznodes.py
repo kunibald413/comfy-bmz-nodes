@@ -18,6 +18,49 @@ sys.path.append(my_dir)
 from bmz_utils import *
 sys.path.remove(my_dir)
 
+class Base64BatchInputMask:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "base64_image": ("STRING", {"default": ""}),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE", "MASK")
+    RETURN_NAMES = ("Image", "Mask")
+    FUNCTION = "get_image_and_mask"
+
+    CATEGORY = "image"
+
+    def get_image_and_mask(self, base64_image):
+        # Decode base64 strings into images
+        images = []
+        masks = []  # list to store the alpha mask
+        if base64_image:
+            image_bytes = base64.b64decode(base64_image)
+            image = Image.open(io.BytesIO(image_bytes))
+
+            # Check for an alpha channel
+            if 'A' in image.getbands():
+                # Image has an alpha channel; use it as the mask
+                alpha_channel = np.array(image.getchannel('A')).astype(np.float32) / 255.0
+                mask = 1. - torch.from_numpy(alpha_channel)
+            else:
+                # No alpha channel; return a zero mask
+                mask = torch.zeros((image.size[1], image.size[0]), dtype=torch.float32)
+
+            # Convert image to RGB if necessary
+            image = image.convert("RGB")
+            image = np.array(image).astype(np.float32) / 255.0
+            image_processed = torch.from_numpy(image)[None,]  # Add batch dimension
+            
+            images.append(image_processed)
+            masks.append(mask.unsqueeze(0))  # Add a channel dimension to the mask
+
+        return (images[0], masks[0])
+
+
 class Base64BatchInput:
     @classmethod
     def INPUT_TYPES(cls):
@@ -367,6 +410,7 @@ class BetterConcat:
         return (concat,)
 
 NODE_CLASS_MAPPINGS = {
+    "Base64BatchInputMask //BMZ": Base64BatchInputMask,
     "Base64BatchInput //BMZ": Base64BatchInput,
     "Base64BatchInputMulti //BMZ": Base64BatchInputMulti,
     "Base64BatchInputMultiWithFallback //BMZ": Base64BatchInputMultiWithFallback,
@@ -377,6 +421,7 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
+    "Base64BatchInputMask //BMZ": "Base64 Batch Input Mask //BMZ",
     "Base64BatchInput //BMZ": "Base64 Batch Input //BMZ",
     "Base64BatchInputMulti //BMZ": "Base64 Batch Input Multi//BMZ",
     "Base64BatchInputMultiWithFallback //BMZ": "Base64 Batch Input Multi With Fallback//BMZ",
